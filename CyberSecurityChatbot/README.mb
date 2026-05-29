@@ -1,0 +1,175 @@
+﻿================================================================================
+                    CYBERSECURITY AWARENESS CHATBOT
+                            PROG6221 - PART 1
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+This is a C# console application that functions as a Cybersecurity Awareness
+Chatbot. The bot educates users about online safety including password security,
+phishing scams, and safe browsing practices.
+
+FEATURES IMPLEMENTED
+================================================================================
+1. Voice Greeting        - Plays a WAV audio file when the application starts
+2. ASCII Art Logo        - Displays a cybersecurity-themed logo at launch
+3. Personalized Greeting - Asks for user's name and uses it in responses
+4. Response System       - Answers questions about cybersecurity topics
+5. Input Validation      - Handles empty or unrecognized inputs gracefully
+6. Enhanced Console UI   - Colored text, borders, and typing effect
+7. Modular Code Structure- Code organized into separate class files
+
+FILE STRUCTURE
+================================================================================
+CyberSecurityChatbot/
+├── Program.cs           - Main entry point and conversation loop
+├── AudioService.cs      - Handles voice greeting playback
+├── ChatbotUI.cs         - Console UI methods (ASCII art, colors, typing)
+├── ChatbotLogic.cs      - Response logic and cybersecurity advice
+├── greeting.wav         - Voice greeting audio file
+└── README.txt           - This file
+
+CLASS DESCRIPTIONS
+================================================================================
+Program.cs
+----------
+- Contains the Main() method
+- Manages the conversation loop
+- Calls methods from other classes
+
+AudioService.cs
+---------------
+- Plays the welcome audio greeting
+- Uses System.Media.SoundPlayer
+- Handles file not found errors gracefully
+
+ChatbotUI.cs
+------------
+- DisplayAsciiArt()    - Shows the cybersecurity logo
+- GetUserName()        - Asks for and returns user's name
+- ShowWelcomeMessage() - Displays welcome message with borders
+- TypeWriterEffect()   - Creates typing animation effect
+- ShowGoodbyeMessage() - Displays exit message
+
+ChatbotLogic.cs
+---------------
+- GetResponse()        - Main method that processes user input
+- GetPasswordAdvice()  - Returns password safety tips
+- GetPhishingAdvice()  - Returns phishing awareness tips
+- GetSafeBrowsingAdvice() - Returns safe browsing tips
+
+HOW TO RUN THE APPLICATION
+================================================================================
+1. Open the solution in Visual Studio
+2. Press F5 to build and run
+3. If a greeting.wav file is present, it will play
+4. Enter your name when prompted
+5. Type questions about cybersecurity
+6. Type 'exit' or 'quit' to end the conversation
+
+EXAMPLE CONVERSATION
+================================================================================
+[Bot] May I have your name? Thabo
+
+[Bot] Welcome, THABO!
+
+[Bot] I'm your Cybersecurity Awareness Assistant!
+      I can help you learn about:
+      - Password Safety
+      - Phishing Scams
+      - Safe Browsing
+
+You: What is phishing?
+[Bot] 🎣 PHISHING AWARENESS:
+      - Never click links in unexpected emails
+      - Check sender's email address carefully
+      - Hover over links to see the real URL
+      - Legitimate companies won't ask for passwords via email
+
+You: exit
+[Bot] Goodbye, Thabo! Stay safe online!
+
+SUPPORTED QUESTIONS
+================================================================================
+Category              | Example Questions
+----------------------|--------------------------------------------------
+General Greetings     | "How are you?"
+Purpose               | "What's your purpose?" "What can you do?"
+Topics                | "What can I ask about?"
+Password Safety       | "Tell me about passwords" "Password tips"
+Phishing              | "What is phishing?" "How to spot a scam?"
+Safe Browsing         | "Safe browsing tips" "How to stay safe online?"
+
+RESPONSE CONTENT
+================================================================================
+Password Safety Tips:
+- Use passwords at least 12 characters long
+- Include uppercase, lowercase, numbers, and symbols
+- Don't reuse passwords across multiple accounts
+- Use a password manager (Bitwarden, LastPass)
+- Never share your password with anyone
+
+Phishing Awareness Tips:
+- Never click suspicious links in emails or SMS
+- Check sender email addresses carefully
+- Hover over links to see the real URL before clicking
+- Legitimate companies won't ask for passwords via email
+- If it seems urgent or too good to be true, it's probably a scam
+
+Safe Browsing Tips:
+- Look for 'https://' and the padlock icon
+- Avoid downloading files from untrusted websites
+- Keep browser and antivirus software updated
+- Use an ad-blocker to avoid malicious ads
+- Verify file extensions before opening downloads
+
+TECHNICAL REQUIREMENTS
+================================================================================
+- Operating System: Windows (for audio playback)
+- IDE: Visual Studio 2022 or later
+- .NET Version: .NET 6.0 or later
+- Audio: System.Media.SoundPlayer (requires Windows)
+
+TROUBLESHOOTING
+================================================================================
+Issue                          | Solution
+-------------------------------|------------------------------------------------
+Audio not playing              | Ensure greeting.wav is in bin/Debug/net6.0/
+SoundPlayer error              | Add "using System.Media;" to AudioService.cs
+Build errors                   | Check class names match between all files
+Typing effect not working      | Verify Thread.Sleep() is called correctly
+
+KNOWN ISSUES
+================================================================================
+- Audio only works on Windows operating systems
+- WAV file must be in PCM format for SoundPlayer to work
+- Console window size may need adjustment for ASCII art display
+
+GRADING CRITERIA COVERED
+================================================================================
+[✓] Voice Greeting and Image Display (10 Marks)
+[✓] Greeting and User Interaction (10 Marks)
+[✓] Basic Response System (15 Marks)
+[✓] Input Validation (5 Marks)
+[✓] Enhanced Console UI (10 Marks)
+[✓] Code Structure and Readability (15 Marks)
+[✓] Correct Submission (5 Marks)
+[✓] GitHub and CI Setup (15 Marks)
+[✓] Video Presentation (15 Marks)
+
+AUTHOR INFORMATION
+================================================================================
+Module:      PROG6221 - Programming 2A
+Project:     Part 1 - Cybersecurity Awareness Chatbot
+Institution: The Independent Institute of Education (Pty) Ltd
+Year:        2026
+
+REFERENCES
+================================================================================
+Pieterse, H. 2021. The Cyber Threat Landscape in South Africa: A 10-Year Review.
+The African Journal of Information and Communication, 28(28).
+doi: https://doi.org/10.23962/10339/32213
+
+================================================================================
+                            END OF README
+================================================================================
