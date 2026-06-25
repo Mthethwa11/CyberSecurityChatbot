@@ -15,13 +15,25 @@ namespace CyberSecurityChatbot
     public partial class MainWindow : Window
     {
         // ─── Fields ────────────────────────────────────────────────────────────
-        private readonly ChatbotEngine _engine = new ChatbotEngine();
+        private ChatbotEngine _engine;
         private bool _isFirstMessage = true;
+        private ActivityLogger _activityLogger;
+        private TaskManager _taskManager;
+        private System.Collections.Generic.List<CyberTask> _currentTasks = new System.Collections.Generic.List<CyberTask>();
+        private QuizManager _quizManager;
+        private string _selectedQuizAnswer = "";
 
         // ─── Constructor ───────────────────────────────────────────────────────
         public MainWindow()
         {
             InitializeComponent();
+            _activityLogger = new ActivityLogger();
+            _taskManager = new TaskManager(_activityLogger);
+            _quizManager = new QuizManager();
+            _engine = new ChatbotEngine(_taskManager, _quizManager, _activityLogger);
+            _engine.QuizRequested += () => MainTabControl.SelectedIndex = 2;
+            _engine.TasksChanged += LoadTasksIntoList;
+            LoadTasksIntoList();
             Loaded += MainWindow_Loaded;
         }
 
@@ -290,6 +302,164 @@ namespace CyberSecurityChatbot
             string summary = _engine.GetMemorySummary();
             AddSystemMessage("─── Memory Profile ───");
             AddBotMessage($"📋 Here's what I remember about you:\n\n{summary}");
+        }
+
+        // ─── Task Assistant Handlers ───────────────────────────────────────────
+
+        /// <summary>Reloads the task list from the database into the TaskListBox.</summary>
+        private void LoadTasksIntoList()
+        {
+            _currentTasks = _taskManager.GetAllTasks();
+            TaskListBox.Items.Clear();
+
+            foreach (var task in _currentTasks)
+            {
+                string status = task.IsComplete ? "[DONE]" : "[ ]";
+                string reminderText = string.IsNullOrEmpty(task.Reminder) ? "" : $" | Reminder: {task.Reminder}";
+                TaskListBox.Items.Add($"{status} {task.Title} - {task.Description}{reminderText}");
+            }
+        }
+
+        /// <summary>Adds a new task from the Task Assistant panel.</summary>
+        private void AddTaskButton_Click(object sender, RoutedEventArgs e)
+        {
+            string title = TaskTitleBox.Text.Trim();
+            string description = TaskDescriptionBox.Text.Trim();
+            string reminder = TaskReminderBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(title))
+            {
+                MessageBox.Show("Please enter a task title.");
+                return;
+            }
+
+            _taskManager.AddTask(title, description, reminder);
+            LoadTasksIntoList();
+
+            TaskTitleBox.Text = "";
+            TaskDescriptionBox.Text = "";
+            TaskReminderBox.Text = "";
+        }
+
+        /// <summary>Marks the selected task as complete.</summary>
+        private void MarkCompleteButton_Click(object sender, RoutedEventArgs e)
+        {
+            int index = TaskListBox.SelectedIndex;
+            if (index < 0 || index >= _currentTasks.Count)
+            {
+                MessageBox.Show("Please select a task first.");
+                return;
+            }
+
+            var task = _currentTasks[index];
+            _taskManager.MarkAsComplete(task.Id, task.Title);
+            LoadTasksIntoList();
+        }
+
+        /// <summary>Deletes the selected task.</summary>
+        private void DeleteTaskButton_Click(object sender, RoutedEventArgs e)
+        {
+            int index = TaskListBox.SelectedIndex;
+            if (index < 0 || index >= _currentTasks.Count)
+            {
+                MessageBox.Show("Please select a task first.");
+                return;
+            }
+
+            var task = _currentTasks[index];
+            _taskManager.DeleteTask(task.Id, task.Title);
+            LoadTasksIntoList();
+        }
+
+        // ─── Quiz Handlers ──────────────────────────────────────────────────────
+
+        /// <summary>Starts (or restarts) the quiz and displays the first question.</summary>
+        private void StartQuizButton_Click(object sender, RoutedEventArgs e)
+        {
+            _quizManager.ResetQuiz();
+            _activityLogger.Log("Quiz started");
+            QuizFeedbackText.Text = "";
+            DisplayCurrentQuestion();
+        }
+
+        /// <summary>Renders the current question and its answer options as radio buttons.</summary>
+        private void DisplayCurrentQuestion()
+        {
+            QuizOptionsPanel.Children.Clear();
+            _selectedQuizAnswer = "";
+
+            var question = _quizManager.GetCurrentQuestion();
+            if (question == null)
+            {
+                QuizQuestionText.Text = "Quiz finished! Press 'Start Quiz' to play again.";
+                return;
+            }
+
+            QuizScoreLabel.Text = $"Score: {_quizManager.GetScore()} / {_quizManager.GetTotalQuestions()}";
+            QuizQuestionText.Text = question.Question;
+
+            foreach (var option in question.Options)
+            {
+                var radio = new RadioButton
+                {
+                    Content = option,
+                    GroupName = "QuizOptions",
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0)),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 13,
+                    Margin = new Thickness(0, 4, 0, 4),
+                    Tag = question.IsTrueFalse ? option : option.Substring(0, 1)
+                };
+                radio.Checked += (s, e) => { _selectedQuizAnswer = radio.Tag.ToString(); };
+                QuizOptionsPanel.Children.Add(radio);
+            }
+        }
+
+        /// <summary>Submits the selected answer and shows feedback.</summary>
+        private void SubmitAnswerButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_quizManager.GetCurrentQuestion() == null)
+            {
+                MessageBox.Show("Press 'Start Quiz' first.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_selectedQuizAnswer))
+            {
+                MessageBox.Show("Please select an answer first.");
+                return;
+            }
+
+            bool isCorrect = _quizManager.SubmitAnswer(_selectedQuizAnswer);
+            string explanation = _quizManager.GetExplanation();
+
+            QuizFeedbackText.Text = isCorrect
+                ? $"✅ Correct! {explanation}"
+                : $"❌ Incorrect. {explanation}";
+
+            QuizScoreLabel.Text = $"Score: {_quizManager.GetScore()} / {_quizManager.GetTotalQuestions()}";
+
+            if (_quizManager.IsFinished())
+            {
+                string finalMsg = _quizManager.GetFinalMessage();
+                QuizFeedbackText.Text += $"\n\n🏁 Quiz complete! Final score: {_quizManager.GetScore()}/{_quizManager.GetTotalQuestions()}\n{finalMsg}";
+                QuizOptionsPanel.Children.Clear();
+                QuizQuestionText.Text = "Quiz finished! Press 'Start Quiz' to play again.";
+                _activityLogger.Log($"Quiz completed - score: {_quizManager.GetScore()} out of {_quizManager.GetTotalQuestions()}");
+            }
+        }
+
+        /// <summary>Advances to the next question after feedback has been shown.</summary>
+        private void NextQuestionButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_quizManager.GetCurrentQuestion() == null && !_quizManager.IsFinished())
+            {
+                MessageBox.Show("Press 'Start Quiz' first.");
+                return;
+            }
+
+            QuizFeedbackText.Text = "";
+            DisplayCurrentQuestion();
         }
     }
 }
