@@ -6,7 +6,7 @@ namespace CyberSecurityChatbot
 {
     /// <summary>
     /// Core chatbot engine handling keyword recognition, random responses,
-    /// memory/recall, sentiment detection, and conversation flow.
+    /// memory/recall, sentiment detection, conversation flow, and NLP intent routing.
     /// </summary>
     public class ChatbotEngine
     {
@@ -14,6 +14,26 @@ namespace CyberSecurityChatbot
         private readonly Random _random = new Random();
         private string _lastTopic = string.Empty;
         private readonly Dictionary<string, string> _userMemory = new();
+
+        // ─── NLP / Task / Quiz / Log Integration ───────────────────────────────
+        private readonly TaskManager _taskManager;
+        private readonly QuizManager _quizManager;
+        private readonly ActivityLogger _activityLogger;
+        private string _pendingTaskTitle = string.Empty;
+        private bool _awaitingReminderResponse = false;
+
+        /// <summary>Raised when the chatbot detects a "start quiz" intent, so the GUI can switch tabs.</summary>
+        public event Action QuizRequested;
+
+        /// <summary>Raised when a task is added via chat, so the GUI task list can refresh.</summary>
+        public event Action TasksChanged;
+
+        public ChatbotEngine(TaskManager taskManager = null, QuizManager quizManager = null, ActivityLogger activityLogger = null)
+        {
+            _taskManager = taskManager;
+            _quizManager = quizManager;
+            _activityLogger = activityLogger;
+        }
 
         // ─── Keyword → Multiple Responses (Random Responses feature) ──────────
         private readonly Dictionary<string, List<string>> _responses = new()
@@ -108,10 +128,10 @@ namespace CyberSecurityChatbot
         // ─── Sentiment Detection ───────────────────────────────────────────────
         private readonly Dictionary<string, string[]> _sentimentKeywords = new()
         {
-            ["worried"]    = new[] { "worried", "scared", "afraid", "nervous", "anxious", "concerned", "fear", "unsafe", "danger" },
-            ["curious"]    = new[] { "curious", "interested", "wondering", "want to know", "how does", "what is", "learn", "tell me about", "explain" },
+            ["worried"] = new[] { "worried", "scared", "afraid", "nervous", "anxious", "concerned", "fear", "unsafe", "danger" },
+            ["curious"] = new[] { "curious", "interested", "wondering", "want to know", "how does", "what is", "learn", "tell me about", "explain" },
             ["frustrated"] = new[] { "frustrated", "annoyed", "confused", "don't understand", "complicated", "difficult", "hard", "lost", "can't figure" },
-            ["happy"]      = new[] { "happy", "great", "awesome", "good", "excellent", "thanks", "thank you", "helpful", "love it" }
+            ["happy"] = new[] { "happy", "great", "awesome", "good", "excellent", "thanks", "thank you", "helpful", "love it" }
         };
 
         // ─── Follow-Up Keywords (Conversation Flow) ────────────────────────────
@@ -119,6 +139,27 @@ namespace CyberSecurityChatbot
         {
             "more", "another", "again", "explain", "elaborate",
             "continue", "go on", "tell me more", "give me another", "another tip"
+        };
+
+        // ─── NLP Intent Keyword Groups ──────────────────────────────────────────
+        private readonly string[] _addTaskKeywords =
+        {
+            "add task", "add a task", "create task", "i need to", "enable", "set up a task"
+        };
+
+        private readonly string[] _reminderKeywords =
+        {
+            "remind me", "reminder", "set a reminder", "remind me to", "don't forget"
+        };
+
+        private readonly string[] _quizKeywords =
+        {
+            "start quiz", "take quiz", "test my knowledge", "quiz me", "play the game"
+        };
+
+        private readonly string[] _logKeywords =
+        {
+            "show activity log", "what have you done", "what did you do", "show log", "recent actions"
         };
 
         // ─── Properties ────────────────────────────────────────────────────────
@@ -137,7 +178,8 @@ namespace CyberSecurityChatbot
 
         /// <summary>
         /// Processes user input and returns a contextual, personalised response.
-        /// Handles: sentiment, follow-ups, memory, keyword matching, error cases.
+        /// Step 0 checks NLP intents (task/reminder/quiz/log) before falling through
+        /// to the existing Part 2 flow (sentiment, keyword, memory, follow-up, fallback).
         /// </summary>
         public string GetResponse(string input)
         {
@@ -150,6 +192,11 @@ namespace CyberSecurityChatbot
             // ── Exit Command ───────────────────────────────────────────────────
             if (lower == "exit" || lower == "quit")
                 return "__EXIT__";
+
+            // ── Step 0: NLP Intent Detection (Task / Reminder / Quiz / Log) ─────
+            string intentResponse = ProcessIntent(lower, input);
+            if (intentResponse != null)
+                return intentResponse;
 
             // ── Detect Sentiment ───────────────────────────────────────────────
             CurrentSentiment = DetectSentiment(lower);
@@ -237,6 +284,153 @@ namespace CyberSecurityChatbot
                  + "Or type 'help' to see all topics.";
         }
 
+        // ─── NLP Intent Processing ──────────────────────────────────────────────
+
+        /// <summary>
+        /// Detects task, reminder, quiz, or log intents from varied phrasing using
+        /// keyword groups and string.Contains(). Returns null if no intent matched,
+        /// so the caller falls through to the existing Part 2 response flow.
+        /// </summary>
+        private string ProcessIntent(string lower, string originalInput)
+        {
+            // ── Awaiting a reminder answer for a task just added ────────────────
+            if (_awaitingReminderResponse)
+            {
+                _awaitingReminderResponse = false;
+
+                bool saidYes = lower.Contains("yes") || lower.Contains("sure") || lower.Contains("ok") || lower.Contains("remind");
+
+                if (saidYes)
+                {
+                    string reminderText = ExtractReminderText(originalInput);
+                    UpdateLastTaskReminder(reminderText);
+                    _activityLogger?.Log($"Reminder set: '{_pendingTaskTitle}' ({reminderText})");
+                    return $"Got it! I'll remind you {reminderText}.";
+                }
+
+                return "No problem, no reminder set for that task.";
+            }
+
+            // ── Show activity log intent ────────────────────────────────────────
+            if (_logKeywords.Any(k => lower.Contains(k)))
+            {
+                if (_activityLogger == null)
+                    return "Activity log isn't available right now.";
+
+                if (lower.Contains("show more") || lower.Contains("full log") || lower.Contains("everything"))
+                    return _activityLogger.GetFullLog();
+
+                string recent = _activityLogger.GetRecentLog(10);
+                if (_activityLogger.GetCount() > 10)
+                    recent += "\n\n📜 Type 'show more' to see the full history.";
+
+                return recent;
+            }
+
+            // ── Start quiz intent ───────────────────────────────────────────────
+            if (_quizKeywords.Any(k => lower.Contains(k)))
+            {
+                if (_quizManager == null)
+                    return "The quiz isn't available right now.";
+
+                QuizRequested?.Invoke();
+                _activityLogger?.Log("Quiz started");
+                return "🎮 Launching the cybersecurity quiz! Head to the QUIZ tab to play — your first question is waiting.";
+            }
+
+            // ── Set reminder intent (standalone, e.g. "remind me to update my password tomorrow") ──
+            if (_reminderKeywords.Any(k => lower.Contains(k)))
+            {
+                string taskTitle = ExtractTaskTitle(originalInput, _reminderKeywords);
+                string reminderText = ExtractReminderText(originalInput);
+
+                if (_taskManager != null)
+                {
+                    _taskManager.AddTask(taskTitle, taskTitle, reminderText);
+                    TasksChanged?.Invoke();
+                }
+
+                return $"Reminder set for '{taskTitle}' {reminderText}.";
+            }
+
+            // ── Add task intent ─────────────────────────────────────────────────
+            if (_addTaskKeywords.Any(k => lower.Contains(k)))
+            {
+                string taskTitle = ExtractTaskTitle(originalInput, _addTaskKeywords);
+
+                if (_taskManager != null)
+                {
+                    _taskManager.AddTask(taskTitle, taskTitle, "");
+                    TasksChanged?.Invoke();
+                }
+
+                _pendingTaskTitle = taskTitle;
+                _awaitingReminderResponse = true;
+
+                return $"Task added: '{taskTitle}.' Would you like to set a reminder for this task?";
+            }
+
+            // No NLP intent matched — fall through to existing Part 2 flow
+            return null;
+        }
+
+        /// <summary>Extracts a clean task title from user input by stripping known trigger phrases.</summary>
+        private string ExtractTaskTitle(string originalInput, string[] triggerPhrases)
+        {
+            string cleaned = originalInput;
+
+            foreach (var phrase in triggerPhrases)
+                cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, phrase, "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Strip common connector words and reminder time phrases for a cleaner title
+            string[] stripWords = { "to ", "that ", "a ", "tomorrow", "today", "please" };
+            foreach (var word in stripWords)
+                cleaned = cleaned.Replace(word, "", StringComparison.OrdinalIgnoreCase);
+
+            cleaned = cleaned.Trim(' ', '-', '.', '!');
+
+            if (string.IsNullOrWhiteSpace(cleaned))
+                cleaned = "New cybersecurity task";
+
+            // Capitalise first letter
+            return char.ToUpper(cleaned[0]) + cleaned.Substring(1);
+        }
+
+        /// <summary>Extracts a human-readable reminder phrase (e.g. "in 3 days", "tomorrow") from input.</summary>
+        private string ExtractReminderText(string input)
+        {
+            string lower = input.ToLower();
+
+            if (lower.Contains("tomorrow"))
+                return "tomorrow";
+
+            var match = System.Text.RegularExpressions.Regex.Match(lower, @"in\s+(\d+)\s+day");
+            if (match.Success)
+                return $"in {match.Groups[1].Value} days";
+
+            match = System.Text.RegularExpressions.Regex.Match(lower, @"(\d{1,2}\s+\w+\s+\d{4})");
+            if (match.Success)
+                return $"on {match.Groups[1].Value}";
+
+            return "soon";
+        }
+
+        /// <summary>Updates the reminder field on the most recently added task.</summary>
+        private void UpdateLastTaskReminder(string reminderText)
+        {
+            if (_taskManager == null) return;
+
+            var tasks = _taskManager.GetAllTasks();
+            var lastTask = tasks.OrderByDescending(t => t.Id).FirstOrDefault();
+
+            if (lastTask != null)
+            {
+                _taskManager.DeleteTask(lastTask.Id, lastTask.Title);
+                _taskManager.AddTask(lastTask.Title, lastTask.Description, reminderText);
+                TasksChanged?.Invoke();
+            }
+        }
+
         // ─── Private Helper Methods ────────────────────────────────────────────
 
         /// <summary>Returns a randomly selected response for the given topic.</summary>
@@ -261,11 +455,11 @@ namespace CyberSecurityChatbot
         {
             return sentiment switch
             {
-                "worried"    => $"I completely understand your concern, {UserName} — it's natural to feel that way. Here's something reassuring:\n\n",
-                "curious"    => $"Great question, {UserName}! Your curiosity is the best defence. Here's what you need to know:\n\n",
+                "worried" => $"I completely understand your concern, {UserName} — it's natural to feel that way. Here's something reassuring:\n\n",
+                "curious" => $"Great question, {UserName}! Your curiosity is the best defence. Here's what you need to know:\n\n",
                 "frustrated" => $"No worries at all, {UserName}! Cybersecurity can feel overwhelming. Let me simplify this for you:\n\n",
-                "happy"      => $"Wonderful, {UserName}! 😊 Keep that positive energy going. Here's more useful info:\n\n",
-                _            => ""
+                "happy" => $"Wonderful, {UserName}! 😊 Keep that positive energy going. Here's more useful info:\n\n",
+                _ => ""
             };
         }
 
